@@ -1,9 +1,11 @@
+# secure-rdp.yml
+# Make sure you add a repository secret named: TAILSCALE_AUTHKEY
 name: secure-rdp
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # تشغيل تلقائي كل 6 ساعات
+    - cron: '0 */6 * * *'  # run every 6 hours
 
 jobs:
   build:
@@ -11,27 +13,47 @@ jobs:
     timeout-minutes: 360
 
     steps:
-    - name: إعداد RDP
-      shell: powershell
-      run: |
-        Write-Host "🔧 إنشاء مستخدم RDP..."
-        net user RDP RDP@2025 /add /y
-        net localgroup administrators RDP /add
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Write-Host "✅ تم تفعيل RDP بنجاح"
 
-    - name: تثبيت Tailscale وربطه
+    - name: Setup RDP user and enable RDP
       shell: powershell
       run: |
-        Write-Host "⬇️ تثبيت Tailscale..."
-        iwr https://tailscale.com/install.ps1 -useb | iex
+        Write-Host "=== Create RDP user if not exists ==="
+        try {
+          if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
+            $pwd = ConvertTo-SecureString "RDP@2025" -AsPlainText -Force
+            New-LocalUser -Name "RDP" -Password $pwd -FullName "RDP User" -Description "RDP account for GitHub Action"
+            Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+            Write-Host "User RDP created and added to Administrators."
+          } else {
+            Write-Host "User RDP already exists."
+          }
+
+          Write-Host "Enabling Remote Desktop..."
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Write-Host "Remote Desktop enabled."
+        } catch {
+          Write-Error "Failed to create user or enable RDP: $_"
+          exit 1
+        }
+
+    - name: Install and connect Tailscale
+      shell: powershell
+      run: |
+        Write-Host "Installing Tailscale..."
+        iwr https://tailscale.com/install.ps1 -UseBasicParsing | iex
+        Write-Host "Bringing Tailscale up..."
         tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname "MyRDP" --accept-dns=false
-        Write-Host "✅ تم ربط الجهاز بـ Tailscale باسم ثابت (MyRDP)"
-        tailscale ip -4
+        Write-Host "Tailscale started. Fetching Tailscale IPv4 address..."
+        $ip = tailscale ip -4
+        if ($ip) {
+          Write-Host "Tailscale IP (IPv4): $ip"
+        } else {
+          Write-Host "Warning: tailscale ip returned no IPv4 address."
+        }
 
-    - name: الحفاظ على الاتصال
+    - name: Keep session alive
       shell: powershell
       run: |
-        Write-Host "💡 RDP جاهز! استخدم Ctrl+C للإيقاف"
+        Write-Host "RDP session will stay alive for 6 hours (21600 seconds)."
         Start-Sleep -Seconds 21600
