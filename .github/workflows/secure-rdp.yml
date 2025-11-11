@@ -1,9 +1,9 @@
 name: secure-rdp
 
 on:
-  workflow_dispatch:  # لتشغيله يدويًا متى شئت
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # يعيد التشغيل تلقائيًا كل 6 ساعات
+    - cron: '0 */6 * * *'  # تشغيل تلقائي كل 6 ساعات
 
 jobs:
   build:
@@ -12,21 +12,26 @@ jobs:
 
     steps:
     - name: إعداد RDP
+      shell: powershell
       run: |
-        echo "=== إنشاء مستخدم RDP ==="
-        net user RDP RDP@2025 /add
+        Write-Host "🔧 إنشاء مستخدم RDP..."
+        net user RDP RDP@2025 /add /y
         net localgroup administrators RDP /add
         Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        echo "تم تفعيل RDP ✅"
+        Write-Host "✅ تم تفعيل RDP بنجاح"
 
     - name: تثبيت Tailscale وربطه
+      shell: powershell
       run: |
-        curl -fsSL https://tailscale.com/install.sh | sh
+        Write-Host "⬇️ تثبيت Tailscale..."
+        iwr https://tailscale.com/install.ps1 -useb | iex
         tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname "MyRDP" --accept-dns=false
-        echo "✅ تم ربط الجهاز بـ Tailscale باسم ثابت (MyRDP)"
+        Write-Host "✅ تم ربط الجهاز بـ Tailscale باسم ثابت (MyRDP)"
+        tailscale ip -4
 
     - name: الحفاظ على الاتصال
+      shell: powershell
       run: |
-        echo "RDP Active - استخدم Ctrl+C للإيقاف"
-        timeout /t 21600
+        Write-Host "💡 RDP جاهز! استخدم Ctrl+C للإيقاف"
+        Start-Sleep -Seconds 21600
