@@ -1,0 +1,32 @@
+name: secure-rdp
+
+on:
+  workflow_dispatch:  # لتشغيله يدويًا متى شئت
+  schedule:
+    - cron: '0 */6 * * *'  # يعيد التشغيل تلقائيًا كل 6 ساعات
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+    - name: إعداد RDP
+      run: |
+        echo "=== إنشاء مستخدم RDP ==="
+        net user RDP RDP@2025 /add
+        net localgroup administrators RDP /add
+        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        echo "تم تفعيل RDP ✅"
+
+    - name: تثبيت Tailscale وربطه
+      run: |
+        curl -fsSL https://tailscale.com/install.sh | sh
+        tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname "MyRDP" --accept-dns=false
+        echo "✅ تم ربط الجهاز بـ Tailscale باسم ثابت (MyRDP)"
+
+    - name: الحفاظ على الاتصال
+      run: |
+        echo "RDP Active - استخدم Ctrl+C للإيقاف"
+        timeout /t 21600
