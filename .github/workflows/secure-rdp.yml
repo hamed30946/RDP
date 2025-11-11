@@ -1,5 +1,4 @@
 # secure-rdp.yml
-# Make sure you add a repository secret named: TAILSCALE_AUTHKEY
 name: secure-rdp
 
 on:
@@ -17,20 +16,24 @@ jobs:
     - name: Setup RDP user and enable RDP
       shell: powershell
       run: |
-        Write-Host "=== Create RDP user if not exists ==="
+        Write-Host "=== Create or ensure RDP user exists ==="
         try {
-          if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
-            $pwd = ConvertTo-SecureString "RDP@2025" -AsPlainText -Force
-            New-LocalUser -Name "RDP" -Password $pwd -FullName "RDP User" -Description "RDP account for GitHub Action"
-            Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-            Write-Host "User RDP created and added to Administrators."
+          $exists = & net user RDP 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "User RDP already exists (checked with net user)."
           } else {
-            Write-Host "User RDP already exists."
+            Write-Host "Creating user RDP using net user..."
+            # strong password example - you can change it
+            $pass = "RdpP@ssw0rd2025!"
+            net user RDP $pass /add
+            if ($LASTEXITCODE -ne 0) { throw "net user failed to create RDP (exit $LASTEXITCODE)." }
+            net localgroup administrators RDP /add
+            Write-Host "User created and added to Administrators."
           }
 
-          Write-Host "Enabling Remote Desktop..."
+          Write-Host "Enabling Remote Desktop settings..."
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
           Write-Host "Remote Desktop enabled."
         } catch {
           Write-Error "Failed to create user or enable RDP: $_"
@@ -44,16 +47,12 @@ jobs:
         iwr https://tailscale.com/install.ps1 -UseBasicParsing | iex
         Write-Host "Bringing Tailscale up..."
         tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }} --hostname "MyRDP" --accept-dns=false
-        Write-Host "Tailscale started. Fetching Tailscale IPv4 address..."
+        Write-Host "Getting Tailscale IPv4..."
         $ip = tailscale ip -4
-        if ($ip) {
-          Write-Host "Tailscale IP (IPv4): $ip"
-        } else {
-          Write-Host "Warning: tailscale ip returned no IPv4 address."
-        }
+        if ($ip) { Write-Host "Tailscale IP (IPv4): $ip" } else { Write-Host "Warning: no IPv4 returned by tailscale ip." }
 
     - name: Keep session alive
       shell: powershell
       run: |
-        Write-Host "RDP session will stay alive for 6 hours (21600 seconds)."
+        Write-Host "Keeping session alive for 6 hours."
         Start-Sleep -Seconds 21600
