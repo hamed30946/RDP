@@ -1,4 +1,56 @@
-# --- 3. Robust Download Tailscale ---
+name: Secure RDP via Tailscale
+
+# Trigger manually from the 'Actions' tab
+on: workflow_dispatch
+
+jobs:
+  rdp-job:
+    runs-on: windows-latest
+    timeout-minutes: 360 # 6-hour maximum runtime
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup RDP and Run Tailscale
+        shell: powershell
+        env:
+          # This pulls the secret you created in GitHub repository settings
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+        run: |
+          # --- 1. Enable RDP ---
+          Write-Host "Enabling RDP..."
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # --- 2. Create or Verify RDP User ---
+          Write-Host "Setting up RDP user..."
+          # Define a complex password
+          $password = "P@ssw0rd_Runner_12345!"
+          $username = "rdp_user"
+          
+          try {
+            # Try creating the user
+            New-LocalUser -Name $username -Password (ConvertTo-SecureString $password -AsPlainText -Force) -FullName "RDP User" -Description "Temp user for RDP" -ErrorAction Stop
+            Write-Host "User '$username' created successfully."
+          } catch [Microsoft.ActiveDirectory.LocalAccounts.UserExistsException] {
+            # User already exists, just set the password
+            Write-Host "User '$username' already exists. Setting password..."
+            $user = Get-LocalUser -Name $username
+            $user | Set-LocalUser -Password (ConvertTo-SecureString $password -AsPlainText -Force)
+          } catch {
+            # Other error
+            Write-Host "Error creating user: $_.Exception.Message"
+            exit 1
+          }
+          
+          # Add user to Remote Desktop Users group
+          Write-Host "Adding user to RDP group..."
+          net localgroup "Remote Desktop Users" $username /add
+          net localgroup "Administrators" $username /add # Optional: give admin rights
+
+          # --- 3. Robust Download Tailscale (FIXED URL) ---
           Write-Host "Downloading Tailscale MSI for amd64..."
           $msiPath = "C:\tailscale-setup.msi"
           # This is the correct, stable URL for the 64-bit Windows runner
@@ -22,3 +74,66 @@
               exit 1
             }
           }
+
+          # --- 4. Robust INSTALL Tailscale ---
+          Write-Host "Starting robust MSI installation of Tailscale..."
+          # Arguments: /i (install), /qn (quiet/no UI), /norestart, /L*v (verbose log)
+          $msiArgs = "/i `"$msiPath`" /qn /norestart /L*v C:\ts-install.log"
+          Write-Host "Arguments: $msiArgs"
+          
+          try {
+            # Use Start-Process with -Wait and -PassThru
+            $process = Start-Process "msiExec.exe" -ArgumentList $msiArgs -Wait -PassThru -ErrorAction Stop
+            
+            # Check ExitCode. 0 = success, 3010 = success (reboot required, which we suppressed)
+            if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
+              Write-Host "Tailscale MSI installation COMPLETED successfully (Exit Code: $($process.ExitCode))."
+            } else {
+              # Install failed
+              Write-Host "MSI installation FAILED with Exit Code: $($process.ExitCode)"
+              if (Test-Path C:\ts-install.log) {
+                Write-Host "--- Displaying last 20 lines of install log ---"
+                Get-Content C:\ts-install.log | Select-Object -Last 20
+              }
+              exit 1
+            }
+          } catch {
+            # Start-Process command itself failed
+            Write-Host "CRITICAL: Failed to execute Start-Process for msiexec."
+            Write-Host $_.Exception.Message
+            if (Test-Path C:\ts-install.log) {
+              Get-Content C:\ts-install.log | Select-Object -Last 20
+            }
+            exit 1
+          }
+
+          # --- 5. Run Tailscale and Connect ---
+          Write-Host "Starting Tailscale service..."
+          # Ensure the service is running after install
+          Start-Service -Name Tailscale -ErrorAction SilentlyContinue
+          
+          # Add Tailscale directory to the PATH for this session
+          $env:PATH += ";C:\Program Files\Tailscale"
+          
+          Write-Host "Running 'tailscale up'..."
+          # Connect to Tailscale
+          tailscale up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=github-rdp-runner --accept-routes
+          
+          Write-Host "Getting Tailscale IP..."
+          $tsIp = tailscale ip -4
+          Write-Host "Tailscale IP: $tsIp"
+
+          # --- 6. Print Credentials and Keep Alive ---
+          Write-Host "--- RDP Connection Details ---"
+          Write-Host "Computer (Tailscale IP): $tsIp"
+          Write-Host "Username: $username"
+          Write-Host "Password: $password"
+          Write-Host "-------------------------------"
+          
+          Write-Host "Workflow is running. Keeping alive (max 6 hours)..."
+          # Keepalive loop
+          for ($i = 0; $i -lt 360; $i++) {
+              Write-Host "Still alive... ($i minutes)"
+              Start-Sleep -Seconds 60
+          }
+          Write-Host "Workflow complete."
