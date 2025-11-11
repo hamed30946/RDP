@@ -50,69 +50,21 @@ jobs:
           net localgroup "Remote Desktop Users" $username /add
           net localgroup "Administrators" $username /add # Optional: give admin rights
 
-          # --- 3. Robust Download Tailscale (FIXED URL) ---
-          Write-Host "Downloading Tailscale MSI for amd64..."
-          $msiPath = "C:\tailscale-setup.msi"
-          # This is the correct, stable URL for the 64-bit Windows runner
-          $downloadUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-amd64.msi"
+          # --- 3. Install Tailscale via Winget (THE NEW, CORRECT METHOD) ---
+          Write-Host "Installing Tailscale using Winget..."
+          # This command finds the latest stable Tailscale, accepts all agreements, and installs it silently.
+          # This replaces the need for manual Download (Step 3) and Install (Step 4).
+          winget install --id=Tailscale.Tailscale --source=winget --accept-package-agreements --accept-source-agreements --silent
           
-          try {
-            # Method 1: Start-BitsTransfer (Most reliable)
-            Write-Host "Attempting download with Start-BitsTransfer..."
-            Start-BitsTransfer -Source $downloadUrl -Destination $msiPath -ErrorAction Stop
-            Write-Host "Download successful (BitsTransfer)."
-          } catch {
-            Write-Host "BitsTransfer failed: $_.Exception.Message"
-            try {
-              # Method 2: WebClient (Fallback)
-              Write-Host "Attempting download with WebClient..."
-              $webClient = New-Object System.Net.WebClient
-              $webClient.DownloadFile($downloadUrl, $msiPath)
-              Write-Host "Download successful (WebClient)."
-            } catch {
-              Write-Host "WebClient also failed: $_.Exception.Message. CRITICAL: Cannot download MSI."
-              exit 1
-            }
-          }
+          Write-Host "Tailscale installation completed via Winget."
 
-          # --- 4. Robust INSTALL Tailscale ---
-          Write-Host "Starting robust MSI installation of Tailscale..."
-          # Arguments: /i (install), /qn (quiet/no UI), /norestart, /L*v (verbose log)
-          $msiArgs = "/i `"$msiPath`" /qn /norestart /L*v C:\ts-install.log"
-          Write-Host "Arguments: $msiArgs"
-          
-          try {
-            # Use Start-Process with -Wait and -PassThru
-            $process = Start-Process "msiExec.exe" -ArgumentList $msiArgs -Wait -PassThru -ErrorAction Stop
-            
-            # Check ExitCode. 0 = success, 3010 = success (reboot required, which we suppressed)
-            if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-              Write-Host "Tailscale MSI installation COMPLETED successfully (Exit Code: $($process.ExitCode))."
-            } else {
-              # Install failed
-              Write-Host "MSI installation FAILED with Exit Code: $($process.ExitCode)"
-              if (Test-Path C:\ts-install.log) {
-                Write-Host "--- Displaying last 20 lines of install log ---"
-                Get-Content C:\ts-install.log | Select-Object -Last 20
-              }
-              exit 1
-            }
-          } catch {
-            # Start-Process command itself failed
-            Write-Host "CRITICAL: Failed to execute Start-Process for msiexec."
-            Write-Host $_.Exception.Message
-            if (Test-Path C:\ts-install.log) {
-              Get-Content C:\ts-install.log | Select-Object -Last 20
-            }
-            exit 1
-          }
-
-          # --- 5. Run Tailscale and Connect ---
+          # --- 4. Run Tailscale and Connect ---
           Write-Host "Starting Tailscale service..."
           # Ensure the service is running after install
           Start-Service -Name Tailscale -ErrorAction SilentlyContinue
           
           # Add Tailscale directory to the PATH for this session
+          # Winget usually does this, but this is a good safety measure.
           $env:PATH += ";C:\Program Files\Tailscale"
           
           Write-Host "Running 'tailscale up'..."
@@ -123,7 +75,7 @@ jobs:
           $tsIp = tailscale ip -4
           Write-Host "Tailscale IP: $tsIp"
 
-          # --- 6. Print Credentials and Keep Alive ---
+          # --- 5. Print Credentials and Keep Alive ---
           Write-Host "--- RDP Connection Details ---"
           Write-Host "Computer (Tailscale IP): $tsIp"
           Write-Host "Username: $username"
