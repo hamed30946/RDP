@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 255 255 255;
+  --foreground: 10 10 10;
+}
+
+.dark {
+  --background: 10 10 10;
+  --foreground: 245 245 245;
+}
+
+body {
+  background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.08), transparent 40%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 35%),
+    radial-gradient(circle at 20% 60%, rgba(236, 72, 153, 0.05), transparent 30%),
+    rgb(var(--background));
+  color: rgb(var(--foreground));
+  min-height: 100vh;
+}
+
+.section-container {
+  @apply max-w-6xl mx-auto px-4 py-12 sm:px-6 lg:px-8;
+}
+
+.card {
+  @apply bg-white/70 dark:bg-slate-900/60 backdrop-blur rounded-2xl shadow-sm border border-slate-100/60 dark:border-slate-800/60;
+}
+
+.text-gradient {
+  @apply bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-400 bg-clip-text text-transparent;
+}
+
+input, textarea {
+  @apply rounded-md border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/60 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500;
+}
+
+button:focus-visible {
+  @apply outline-none ring-2 ring-offset-2 ring-indigo-500;
+}
